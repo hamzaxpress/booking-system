@@ -53,25 +53,28 @@ jobs:
           ls -la frontend/*.html
 
   deploy:
-    name: Deploy (Optional)
+    name: Deploy (EC2)
     runs-on: ubuntu-latest
     needs: [backend, frontend]
     if: github.ref == 'refs/heads/main'
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Deploy via SSH
+        if: ${{ secrets.DEPLOY_HOST != '' }}
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_KEY }}
+          script: |
+            set -e
+            cd ${{ secrets.DEPLOY_PATH }}
+            git pull
 
-      # Example deployment using SSH. Configure these secrets before enabling:
-      # DEPLOY_HOST, DEPLOY_USER, DEPLOY_KEY, DEPLOY_PATH
-      # - name: Deploy via SSH
-      #   if: ${{ secrets.DEPLOY_HOST != '' }}
-      #   uses: appleboy/ssh-action@v1.0.3
-      #   with:
-      #     host: ${{ secrets.DEPLOY_HOST }}
-      #     username: ${{ secrets.DEPLOY_USER }}
-      #     key: ${{ secrets.DEPLOY_KEY }}
-      #     script: |
-      #       set -e
-      #       cd ${{ secrets.DEPLOY_PATH }}
-      #       git pull
-      #       # add your restart/build commands here
+            # Backend: install deps and restart uvicorn
+            python3 -m pip install -r backend/requirements.txt
+            pkill -f "uvicorn app.main:app" || true
+            nohup uvicorn app.main:app --host 0.0.0.0 --port 8000 > backend.log 2>&1 &
+
+            # Frontend: restart simple static server
+            pkill -f "python3 -m http.server 5500" || true
+            nohup python3 -m http.server 5500 > frontend.log 2>&1 &
