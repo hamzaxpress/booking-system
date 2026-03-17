@@ -6,75 +6,62 @@ on:
   pull_request:
 
 jobs:
-
   backend:
     name: Backend (FastAPI)
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-          cache: pip
+          python-version: '3.11'
+          cache: 'pip'
           cache-dependency-path: backend/requirements.txt
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r backend/requirements.txt
+          python -m pip install -r backend/requirements.txt
 
       - name: Compile check
         run: python -m compileall backend
 
-      # Enable later if you add tests
+      # If you add tests later, enable the next step:
       # - name: Run tests
-      #   run: pytest
-
+      #   run: python -m pytest -q
 
   frontend:
     name: Frontend (Static)
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node
+      - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: '20'
 
       - name: JS syntax check
         run: |
-          node -e "
-          const fs=require('fs');
-          const path=require('path');
-          const dir='frontend';
-          for(const f of fs.readdirSync(dir)){
-            if(f.endsWith('.js')){
-              const code=fs.readFileSync(path.join(dir,f),'utf8');
-              new Function(code);
-              console.log('OK',f);
-            }
-          }"
+          node -e "const fs=require('fs');const path=require('path');const dir='frontend';for (const f of fs.readdirSync(dir)) {if (f.endsWith('.js')) {const code=fs.readFileSync(path.join(dir,f),'utf8');new Function(code);console.log('OK', f);}}"
 
       - name: HTML presence check
         run: |
           ls -la frontend/*.html
-
 
   deploy:
     name: Deploy (EC2)
     runs-on: ubuntu-latest
     needs: [backend, frontend]
     if: github.ref == 'refs/heads/main'
-
     steps:
-      - name: Deploy to EC2 via SSH
+      - name: Deploy via SSH
+        if: ${{ env.DEPLOY_HOST != '' }}
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.DEPLOY_HOST }}
@@ -82,52 +69,31 @@ jobs:
           key: ${{ secrets.DEPLOY_KEY }}
           timeout: 30m
           command_timeout: 30m
-          request_pty: false
-
           script: |
-            set -e
-
-            echo "Moving to project directory"
+            set -euo pipefail
             cd ${{ secrets.DEPLOY_PATH }}
+            git pull
 
-            echo "Pull latest code"
-            git pull origin main
-
-            echo "Check Python installation"
+            # Backend: install deps and restart uvicorn
             if ! command -v python3 >/dev/null 2>&1; then
-              sudo apt-get update
-              sudo apt-get install -y python3 python3-venv python3-pip
+              echo "python3 not found" >&2
+              exit 1
             fi
-
-            echo "Create virtual environment if missing"
-            if [ ! -d ".venv" ]; then
+            if [ ! -d .venv ]; then
+              sudo DEBIAN_FRONTEND=noninteractive apt-get update
+              sudo DEBIAN_FRONTEND=noninteractive apt-get install -y python3-venv python3-pip
               python3 -m venv .venv
             fi
-
-            source .venv/bin/activate
-
-            echo "Install backend dependencies"
-            pip install -q -r backend/requirements.txt
-
-            echo "Restart FastAPI server"
-            if pgrep -f "uvicorn app.main:app"; then
-              pkill -f "uvicorn app.main:app"
-              sleep 2
+            . .venv/bin/activate
+            REQ_HASH_FILE=".venv/requirements.sha256"
+            NEW_HASH="$(sha256sum backend/requirements.txt | awk '{print $1}')"
+            if [ ! -f "$REQ_HASH_FILE" ] || [ "$(cat "$REQ_HASH_FILE")" != "$NEW_HASH" ]; then
+              pip install -q -r backend/requirements.txt
+              echo "$NEW_HASH" > "$REQ_HASH_FILE"
             fi
+            pkill -f "uvicorn app.main:app" || true
+            setsid .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 > backend.log 2>&1 < /dev/null &
 
-            nohup .venv/bin/uvicorn app.main:app \
-              --host 0.0.0.0 \
-              --port 8000 \
-              > backend.log 2>&1 &
-
-            echo "Restart frontend static server"
-            if pgrep -f "http.server 5500"; then
-              pkill -f "http.server 5500"
-              sleep 2
-            fi
-
-            nohup python3 -m http.server 5500 \
-              --directory frontend \
-              > frontend.log 2>&1 &
-
-            echo "Deployment completed successfully"
+            # Frontend: restart simple static server
+            pkill -f "python3 -m http.server 5500" || true
+            setsid python3 -m http.server 5500 --directory frontend > frontend.log 2>&1 < /dev/null &
