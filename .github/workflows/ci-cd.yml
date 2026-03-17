@@ -69,6 +69,7 @@ jobs:
           key: ${{ secrets.DEPLOY_KEY }}
           timeout: 30m
           command_timeout: 30m
+          request_pty: true
           script: |
             set -e
             cd ${{ secrets.DEPLOY_PATH }}
@@ -88,7 +89,7 @@ jobs:
             REQ_HASH_FILE=".venv/requirements.sha256"
             NEW_HASH="$(sha256sum backend/requirements.txt | awk '{print $1}')"
             if [ ! -f "$REQ_HASH_FILE" ] || [ "$(cat "$REQ_HASH_FILE")" != "$NEW_HASH" ]; then
-              pip install -r backend/requirements.txt
+              pip install -q -r backend/requirements.txt
               echo "$NEW_HASH" > "$REQ_HASH_FILE"
             fi
             pkill -f "uvicorn app.main:app" || true
