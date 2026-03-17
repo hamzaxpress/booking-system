@@ -6,32 +6,33 @@ on:
   pull_request:
 
 jobs:
+
   backend:
     name: Backend (FastAPI)
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: "pip"
+          cache: pip
           cache-dependency-path: backend/requirements.txt
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r backend/requirements.txt
+          pip install -r backend/requirements.txt
 
       - name: Compile check
         run: python -m compileall backend
 
-      # Enable later if tests exist
+      # Enable later if you add tests
       # - name: Run tests
-      #   run: python -m pytest -q
+      #   run: pytest
 
 
   frontend:
@@ -39,10 +40,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Node
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: "20"
@@ -53,11 +54,11 @@ jobs:
           const fs=require('fs');
           const path=require('path');
           const dir='frontend';
-          for (const f of fs.readdirSync(dir)) {
-            if (f.endsWith('.js')) {
+          for(const f of fs.readdirSync(dir)){
+            if(f.endsWith('.js')){
               const code=fs.readFileSync(path.join(dir,f),'utf8');
               new Function(code);
-              console.log('OK', f);
+              console.log('OK',f);
             }
           }"
 
@@ -73,8 +74,7 @@ jobs:
     if: github.ref == 'refs/heads/main'
 
     steps:
-      - name: Deploy via SSH
-        if: ${{ secrets.DEPLOY_HOST != '' }}
+      - name: Deploy to EC2 via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.DEPLOY_HOST }}
@@ -87,41 +87,30 @@ jobs:
           script: |
             set -e
 
+            echo "Moving to project directory"
             cd ${{ secrets.DEPLOY_PATH }}
 
-            echo "Pulling latest code..."
+            echo "Pull latest code"
             git pull origin main
 
-            echo "Checking Python..."
+            echo "Check Python installation"
             if ! command -v python3 >/dev/null 2>&1; then
-              echo "Python3 not found"
-              exit 1
+              sudo apt-get update
+              sudo apt-get install -y python3 python3-venv python3-pip
             fi
 
-            echo "Setting up virtual environment..."
+            echo "Create virtual environment if missing"
             if [ ! -d ".venv" ]; then
-              sudo apt-get update
-              sudo apt-get install -y python3-venv python3-pip
               python3 -m venv .venv
             fi
 
             source .venv/bin/activate
 
-            echo "Checking dependency changes..."
-            REQ_HASH_FILE=".venv/requirements.sha256"
-            NEW_HASH="$(sha256sum backend/requirements.txt | awk '{print $1}')"
+            echo "Install backend dependencies"
+            pip install -q -r backend/requirements.txt
 
-            if [ ! -f "$REQ_HASH_FILE" ] || [ "$(cat "$REQ_HASH_FILE")" != "$NEW_HASH" ]; then
-              echo "Installing dependencies..."
-              pip install -q -r backend/requirements.txt
-              echo "$NEW_HASH" > "$REQ_HASH_FILE"
-            else
-              echo "Dependencies unchanged"
-            fi
-
-            echo "Restarting FastAPI..."
-
-            if pgrep -f "uvicorn app.main:app" > /dev/null; then
+            echo "Restart FastAPI server"
+            if pgrep -f "uvicorn app.main:app"; then
               pkill -f "uvicorn app.main:app"
               sleep 2
             fi
@@ -131,9 +120,8 @@ jobs:
               --port 8000 \
               > backend.log 2>&1 &
 
-            echo "Restarting frontend server..."
-
-            if pgrep -f "http.server 5500" > /dev/null; then
+            echo "Restart frontend static server"
+            if pgrep -f "http.server 5500"; then
               pkill -f "http.server 5500"
               sleep 2
             fi
@@ -142,4 +130,4 @@ jobs:
               --directory frontend \
               > frontend.log 2>&1 &
 
-            echo "Deployment finished successfully."
+            echo "Deployment completed successfully"
