@@ -32,55 +32,61 @@ jobs:
           source: "frontend"
           target: "${{ secrets.DEPLOY_PATH }}/_frontend_upload"
 
-      - name: Deploy on server
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_KEY }}
-          timeout: 30m
-          command_timeout: 30m
-          script: |
-            set -euo pipefail
+      - name: Deploy on server (SSH)
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf "%s" "$SSH_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
 
-            APP_DIR="${{ secrets.DEPLOY_PATH }}"
-            BUILD_FRONTEND="$APP_DIR/_frontend_upload/frontend"
-            APP_FRONTEND="$APP_DIR/frontend"
-            VENV="$APP_DIR/.venv"
-            LOG_DIR="$APP_DIR/logs"
+          ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=10 "$DEPLOY_USER@$DEPLOY_HOST" "bash -s" << 'EOF'
+          set -euo pipefail
 
-            cd "$APP_DIR"
-            git fetch origin
-            git reset --hard origin/main
+          APP_DIR="'"$DEPLOY_PATH"'"
+          BUILD_FRONTEND="$APP_DIR/_frontend_upload/frontend"
+          APP_FRONTEND="$APP_DIR/frontend"
+          VENV="$APP_DIR/.venv"
+          LOG_DIR="$APP_DIR/logs"
 
-            mkdir -p "$LOG_DIR"
+          cd "$APP_DIR"
+          git fetch origin
+          git reset --hard origin/main
 
-            if ! command -v python3 >/dev/null 2>&1; then
-              sudo DEBIAN_FRONTEND=noninteractive apt-get update
-              sudo DEBIAN_FRONTEND=noninteractive apt-get install -y python3 python3-venv python3-pip
-            fi
+          mkdir -p "$LOG_DIR"
 
-            if [ ! -d "$VENV" ]; then
-              python3 -m venv "$VENV"
-            fi
-            source "$VENV/bin/activate"
+          if ! command -v python3 >/dev/null 2>&1; then
+            sudo DEBIAN_FRONTEND=noninteractive apt-get update
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y python3 python3-venv python3-pip
+          fi
 
-            REQ_HASH_FILE="$VENV/requirements.sha256"
-            NEW_HASH="$(sha256sum backend/requirements.txt | awk '{print $1}')"
-            if [ ! -f "$REQ_HASH_FILE" ] || [ "$(cat "$REQ_HASH_FILE")" != "$NEW_HASH" ]; then
-              pip install -q -r backend/requirements.txt
-              echo "$NEW_HASH" > "$REQ_HASH_FILE"
-            fi
+          if [ ! -d "$VENV" ]; then
+            python3 -m venv "$VENV"
+          fi
+          source "$VENV/bin/activate"
 
-            test -f "$BUILD_FRONTEND/logistics_staff_portal.html"
-            test -f "$BUILD_FRONTEND/logistics_tracking_page.html"
+          REQ_HASH_FILE="$VENV/requirements.sha256"
+          NEW_HASH="$(sha256sum backend/requirements.txt | awk '{print $1}')"
+          if [ ! -f "$REQ_HASH_FILE" ] || [ "$(cat "$REQ_HASH_FILE")" != "$NEW_HASH" ]; then
+            pip install -q -r backend/requirements.txt
+            echo "$NEW_HASH" > "$REQ_HASH_FILE"
+          fi
 
-            mkdir -p "$APP_FRONTEND"
-            rsync -a --delete "$BUILD_FRONTEND/" "$APP_FRONTEND/"
+          test -f "$BUILD_FRONTEND/logistics_staff_portal.html"
+          test -f "$BUILD_FRONTEND/logistics_tracking_page.html"
 
-            pkill -f "uvicorn app.main:app" || true
-            cd "$APP_DIR/backend"
-            setsid "$VENV/bin/uvicorn" app.main:app --host 0.0.0.0 --port 8000 > "$LOG_DIR/backend.log" 2>&1 < /dev/null &
+          mkdir -p "$APP_FRONTEND"
+          rsync -a --delete "$BUILD_FRONTEND/" "$APP_FRONTEND/"
 
-            pkill -f "python3 -m http.server 5500" || true
-            setsid python3 -m http.server 5500 --directory "$APP_FRONTEND" > "$LOG_DIR/frontend.log" 2>&1 < /dev/null &
+          pkill -f "uvicorn app.main:app" || true
+          cd "$APP_DIR/backend"
+          setsid "$VENV/bin/uvicorn" app.main:app --host 0.0.0.0 --port 8000 > "$LOG_DIR/backend.log" 2>&1 < /dev/null &
+
+          pkill -f "python3 -m http.server 5500" || true
+          setsid python3 -m http.server 5500 --directory "$APP_FRONTEND" > "$LOG_DIR/frontend.log" 2>&1 < /dev/null &
+          EOF
