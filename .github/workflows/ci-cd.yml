@@ -85,10 +85,15 @@ jobs:
               python3 -m venv .venv
             fi
             . .venv/bin/activate
-            pip install -r backend/requirements.txt
+            REQ_HASH_FILE=".venv/requirements.sha256"
+            NEW_HASH="$(sha256sum backend/requirements.txt | awk '{print $1}')"
+            if [ ! -f "$REQ_HASH_FILE" ] || [ "$(cat "$REQ_HASH_FILE")" != "$NEW_HASH" ]; then
+              pip install -r backend/requirements.txt
+              echo "$NEW_HASH" > "$REQ_HASH_FILE"
+            fi
             pkill -f "uvicorn app.main:app" || true
-            nohup .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 > backend.log 2>&1 &
+            nohup .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 > backend.log 2>&1 & disown
 
             # Frontend: restart simple static server
             pkill -f "python3 -m http.server 5500" || true
-            nohup python3 -m http.server 5500 > frontend.log 2>&1 &
+            nohup python3 -m http.server 5500 > frontend.log 2>&1 & disown
