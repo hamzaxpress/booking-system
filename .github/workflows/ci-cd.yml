@@ -67,6 +67,8 @@ jobs:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_KEY }}
+          timeout: 30m
+          command_timeout: 30m
           script: |
             set -e
             cd ${{ secrets.DEPLOY_PATH }}
@@ -78,8 +80,8 @@ jobs:
               exit 1
             fi
             if [ ! -d .venv ]; then
-              sudo apt-get update
-              sudo apt-get install -y python3-venv python3-pip
+              sudo DEBIAN_FRONTEND=noninteractive apt-get update
+              sudo DEBIAN_FRONTEND=noninteractive apt-get install -y python3-venv python3-pip
               python3 -m venv .venv
             fi
             . .venv/bin/activate
