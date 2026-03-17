@@ -43,12 +43,14 @@ jobs:
           mkdir -p ~/.ssh
           printf "%s" "$SSH_KEY" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+          HOST="$(printf "%s" "$DEPLOY_HOST" | tr -d '\r\n' | xargs)"
+          USER="$(printf "%s" "$DEPLOY_USER" | tr -d '\r\n' | xargs)"
+          APP_PATH="$(printf "%s" "$DEPLOY_PATH" | tr -d '\r\n')"
 
-          ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=10 "$DEPLOY_USER@$DEPLOY_HOST" "bash -s" << 'EOF'
+          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ServerAliveInterval=30 -o ServerAliveCountMax=10 "$USER@$HOST" "APP_DIR='$APP_PATH' bash -s" << 'EOF'
           set -euo pipefail
 
-          APP_DIR="'"$DEPLOY_PATH"'"
+          APP_DIR="${APP_DIR}"
           BUILD_FRONTEND="$APP_DIR/_frontend_upload/frontend"
           APP_FRONTEND="$APP_DIR/frontend"
           VENV="$APP_DIR/.venv"
