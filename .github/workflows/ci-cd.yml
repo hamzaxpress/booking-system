@@ -49,10 +49,13 @@ jobs:
             BUILD_FRONTEND="$APP_DIR/_frontend_upload/frontend"
             APP_FRONTEND="$APP_DIR/frontend"
             VENV="$APP_DIR/.venv"
+            LOG_DIR="$APP_DIR/logs"
 
             cd "$APP_DIR"
             git fetch origin
             git reset --hard origin/main
+
+            mkdir -p "$LOG_DIR"
 
             if ! command -v python3 >/dev/null 2>&1; then
               sudo DEBIAN_FRONTEND=noninteractive apt-get update
@@ -78,7 +81,8 @@ jobs:
             rsync -a --delete "$BUILD_FRONTEND/" "$APP_FRONTEND/"
 
             pkill -f "uvicorn app.main:app" || true
-            setsid "$VENV/bin/uvicorn" app.main:app --host 0.0.0.0 --port 8000 > "$APP_DIR/backend.log" 2>&1 < /dev/null &
+            cd "$APP_DIR/backend"
+            setsid "$VENV/bin/uvicorn" app.main:app --host 0.0.0.0 --port 8000 > "$LOG_DIR/backend.log" 2>&1 < /dev/null &
 
             pkill -f "python3 -m http.server 5500" || true
-            setsid python3 -m http.server 5500 --directory "$APP_FRONTEND" > "$APP_DIR/frontend.log" 2>&1 < /dev/null &
+            setsid python3 -m http.server 5500 --directory "$APP_FRONTEND" > "$LOG_DIR/frontend.log" 2>&1 < /dev/null &
