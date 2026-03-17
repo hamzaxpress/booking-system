@@ -73,13 +73,19 @@ jobs:
             git pull
 
             # Backend: install deps and restart uvicorn
-            if ! command -v pip3 >/dev/null 2>&1; then
-              sudo apt-get update
-              sudo apt-get install -y python3-pip
+            if ! command -v python3 >/dev/null 2>&1; then
+              echo "python3 not found" >&2
+              exit 1
             fi
-            python3 -m pip install -r backend/requirements.txt
+            if [ ! -d .venv ]; then
+              sudo apt-get update
+              sudo apt-get install -y python3-venv python3-pip
+              python3 -m venv .venv
+            fi
+            . .venv/bin/activate
+            pip install -r backend/requirements.txt
             pkill -f "uvicorn app.main:app" || true
-            nohup uvicorn app.main:app --host 0.0.0.0 --port 8000 > backend.log 2>&1 &
+            nohup .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 > backend.log 2>&1 &
 
             # Frontend: restart simple static server
             pkill -f "python3 -m http.server 5500" || true
