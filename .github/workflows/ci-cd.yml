@@ -22,6 +22,11 @@ jobs:
         run: |
           test -f frontend/logistics_staff_portal.html
           test -f frontend/logistics_tracking_page.html
+      
+      - name: Prepare backend (basic checks)
+        run: |
+          test -f backend/requirements.txt
+          test -f backend/app/main.py
 
       - name: Upload frontend folder (keep structure)
         uses: appleboy/scp-action@v0.1.4
