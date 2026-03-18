@@ -595,7 +595,11 @@
     applyTheme(stored || 'light');
   })();
 
-  const API = 'http://localhost:8000';
+  const API = (() => {
+    const { protocol, hostname, port, origin } = window.location;
+    if (port === '5500') return `${protocol}//${hostname}:8000`;
+    return `${origin}/api`;
+  })();
   const docketInput = document.getElementById('docket-input');
   docketInput.addEventListener('input', () => {
     const start = docketInput.selectionStart;
